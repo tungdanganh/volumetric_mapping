@@ -758,7 +758,7 @@ void OctomapWorld::generateMarkerArray(
     if (octree_->isNodeOccupied(*it)) {
       occupied_nodes->markers[depth_level].points.push_back(cube_center);
 
-#if (_OCTOMAP_IS_COLORED_ == 1)
+#ifdef OCTOMAP_IS_COLORED
         occupied_nodes->markers[depth_level].colors.push_back(
              getEncodedColor(it->getColor()));
 #else

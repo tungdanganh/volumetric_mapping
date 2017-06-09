@@ -183,7 +183,7 @@ void WorldBase::insertPointcloud(
     const Transformation& T_G_sensor,
     const sensor_msgs::PointCloud2::ConstPtr& pointcloud_sensor) {
 
-#if (_OCTOMAP_IS_COLORED_ == 1)
+#ifdef OCTOMAP_IS_COLORED
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud_sensor_pcl(
       new pcl::PointCloud<pcl::PointXYZRGB>);
 #else

@@ -4,6 +4,9 @@ project(volumetric_map_base)
 find_package(catkin_simple REQUIRED)
 catkin_simple(ALL_DEPS_REQUIRED)
 
+add_definitions(-DOCTOMAP_IS_COLORED)
+
+
 add_definitions(-std=c++11)
 
 #############
