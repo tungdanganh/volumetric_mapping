@@ -182,8 +182,15 @@ Eigen::Matrix4d WorldBase::generateQ(double Tx, double left_cx, double left_cy,
 void WorldBase::insertPointcloud(
     const Transformation& T_G_sensor,
     const sensor_msgs::PointCloud2::ConstPtr& pointcloud_sensor) {
+
+#if (_OCTOMAP_IS_COLORED_ == 1)
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud_sensor_pcl(
+      new pcl::PointCloud<pcl::PointXYZRGB>);
+#else
   pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_sensor_pcl(
       new pcl::PointCloud<pcl::PointXYZ>);
+#endif
+
   pcl::fromROSMsg(*pointcloud_sensor, *pointcloud_sensor_pcl);
   insertPointcloud(T_G_sensor, pointcloud_sensor_pcl);
 }
@@ -214,7 +221,7 @@ void WorldBase::insertPointcloud(
 
 void WorldBase::insertPointcloud(
     const Transformation& T_G_sensor,
-    const pcl::PointCloud<pcl::PointXYZI>::Ptr& pointcloud_sensor) {
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pointcloud_sensor) {
       insertPointcloudColorIntoMapImpl(T_G_sensor, pointcloud_sensor);
 }
 

@@ -89,7 +89,7 @@ void OctomapWorld::setOctomapParameters(const OctomapParameters& params) {
 
 void OctomapWorld::insertPointcloudColorIntoMapImpl(
     const Transformation& T_G_sensor,
-    const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud) {
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud) {
   // Remove NaN values, if any.
   std::vector<int> indices;
   pcl::removeNaNFromPointCloud(*cloud, *cloud, indices);
@@ -104,7 +104,7 @@ void OctomapWorld::insertPointcloudColorIntoMapImpl(
   // We do this as a batch operation - so first get all the keys in a set, then
   // do the update in batch.
   octomap::KeySet free_cells, occupied_cells;
-  for (pcl::PointCloud<pcl::PointXYZI>::const_iterator it = cloud->begin();
+  for (pcl::PointCloud<pcl::PointXYZRGB>::const_iterator it = cloud->begin();
        it != cloud->end(); ++it) {
     const octomap::point3d p_G_point(it->x, it->y, it->z);
     // First, check if we've already checked this.
@@ -118,6 +118,19 @@ void OctomapWorld::insertPointcloudColorIntoMapImpl(
 
   // Apply the new free cells and occupied cells from
   updateOccupancy(&free_cells, &occupied_cells);
+
+  //tung test insert color
+  for (pcl::PointCloud<pcl::PointXYZRGB>::const_iterator it = cloud->begin();
+       it != cloud->end(); ++it) {
+    if (!std::isnan(it->x) && !std::isnan(it->y) && !std::isnan(it->z)) {
+      // unpack rgb into r/g/b
+      const int rgb = *reinterpret_cast<const int*>(&(it->rgb));
+      unsigned char r = (rgb >> 16) & 0x0000ff;
+      unsigned char g = (rgb >> 8)  & 0x0000ff;
+      unsigned char b = (rgb)       & 0x0000ff;
+      octree_->averageNodeColor(it->x, it->y, it->z, r, g, b);
+    }
+  }
 }
 
 void OctomapWorld::insertPointcloudIntoMapImpl(
@@ -151,6 +164,15 @@ void OctomapWorld::insertPointcloudIntoMapImpl(
 
   // Apply the new free cells and occupied cells from
   updateOccupancy(&free_cells, &occupied_cells);
+
+  // //tung test insert color
+  // for (pcl::PointCloud<pcl::PointXYZ>::const_iterator it = cloud->begin();
+  //      it != cloud->end(); ++it) {
+  //   if (!std::isnan(it->x) && !std::isnan(it->y) && !std::isnan(it->z)) {
+  //     //octree_->averageNodeColor(*it, 100, 169, 50);
+  //     octree_->averageNodeColor(it->x, it->y, it->z, 100, 169, 50);
+  //   }
+  // }
 }
 
 void OctomapWorld::insertProjectedDisparityIntoMapImpl(
@@ -185,6 +207,9 @@ void OctomapWorld::insertProjectedDisparityIntoMapImpl(
     }
   }
   updateOccupancy(&free_cells, &occupied_cells);
+
+
+
 }
 
 void OctomapWorld::castRay(const octomap::point3d& sensor_origin,
@@ -254,8 +279,6 @@ void OctomapWorld::updateOccupancy(octomap::KeySet* free_cells,
                                  end = occupied_cells->end();
        it != end; it++) {
     octree_->updateNode(*it, true);
-    // tung
-    octree_->averageNodeColor(*it, 100, 169, 50);
 
     // Remove any occupied cells from free cells - assume there are far fewer
     // occupied cells than free cells, so this is much faster than checking on
@@ -734,10 +757,15 @@ void OctomapWorld::generateMarkerArray(
 
     if (octree_->isNodeOccupied(*it)) {
       occupied_nodes->markers[depth_level].points.push_back(cube_center);
-      // occupied_nodes->markers[depth_level].colors.push_back(
-      //     percentToColor(colorizeMapByHeight(it.getZ(), min_z, max_z)));
+
+#if (_OCTOMAP_IS_COLORED_ == 1)
+        occupied_nodes->markers[depth_level].colors.push_back(
+             getEncodedColor(it->getColor()));
+#else
       occupied_nodes->markers[depth_level].colors.push_back(
-           getEncodedColor(it->getColor()));
+          percentToColor(colorizeMapByHeight(it.getZ(), min_z, max_z)));
+#endif
+
     } else {
       free_nodes->markers[depth_level].points.push_back(cube_center);
       free_nodes->markers[depth_level].colors.push_back(

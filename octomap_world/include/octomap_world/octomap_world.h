@@ -210,7 +210,7 @@ class OctomapWorld : public WorldBase {
 
   virtual void insertPointcloudColorIntoMapImpl(
       const Transformation& T_G_sensor,
-      const pcl::PointCloud<pcl::PointXYZI>::Ptr& pointcloud);
+      const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pointcloud);
 
   // Check if the node at the specified key has neighbors or not.
   bool isSpeckleNode(const octomap::OcTreeKey& key) const;
