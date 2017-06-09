@@ -57,7 +57,7 @@ OctomapWorld::OctomapWorld(const OctomapParameters& params)
 
 void OctomapWorld::resetMap() {
   if (!octree_) {
-    octree_.reset(new octomap::OcTree(params_.resolution));
+    octree_.reset(new octomap::ColorOcTree(params_.resolution));
   }
   octree_->clear();
 }
@@ -68,10 +68,10 @@ void OctomapWorld::setOctomapParameters(const OctomapParameters& params) {
   if (octree_) {
     if (octree_->getResolution() != params.resolution) {
       LOG(WARNING) << "Octomap resolution has changed! Resetting tree!";
-      octree_.reset(new octomap::OcTree(params.resolution));
+      octree_.reset(new octomap::ColorOcTree(params.resolution));
     }
   } else {
-    octree_.reset(new octomap::OcTree(params.resolution));
+    octree_.reset(new octomap::ColorOcTree(params.resolution));
   }
 
   octree_->setProbHit(params.probability_hit);
@@ -84,6 +84,40 @@ void OctomapWorld::setOctomapParameters(const OctomapParameters& params) {
   // Copy over all the parameters for future use (some are not used just for
   // creating the octree).
   params_ = params;
+}
+
+
+void OctomapWorld::insertPointcloudColorIntoMapImpl(
+    const Transformation& T_G_sensor,
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud) {
+  // Remove NaN values, if any.
+  std::vector<int> indices;
+  pcl::removeNaNFromPointCloud(*cloud, *cloud, indices);
+
+  // First, rotate the pointcloud into the world frame.
+  pcl::transformPointCloud(*cloud, *cloud,
+                           T_G_sensor.getTransformationMatrix());
+  const octomap::point3d p_G_sensor =
+      pointEigenToOctomap(T_G_sensor.getPosition());
+
+  // Then add all the rays from this pointcloud.
+  // We do this as a batch operation - so first get all the keys in a set, then
+  // do the update in batch.
+  octomap::KeySet free_cells, occupied_cells;
+  for (pcl::PointCloud<pcl::PointXYZI>::const_iterator it = cloud->begin();
+       it != cloud->end(); ++it) {
+    const octomap::point3d p_G_point(it->x, it->y, it->z);
+    // First, check if we've already checked this.
+    octomap::OcTreeKey key = octree_->coordToKey(p_G_point);
+
+    if (occupied_cells.find(key) == occupied_cells.end()) {
+      // Check if this is within the allowed sensor range.
+      castRay(p_G_sensor, p_G_point, &free_cells, &occupied_cells);
+    }
+  }
+
+  // Apply the new free cells and occupied cells from
+  updateOccupancy(&free_cells, &occupied_cells);
 }
 
 void OctomapWorld::insertPointcloudIntoMapImpl(
@@ -220,6 +254,8 @@ void OctomapWorld::updateOccupancy(octomap::KeySet* free_cells,
                                  end = occupied_cells->end();
        it != end; it++) {
     octree_->updateNode(*it, true);
+    // tung
+    octree_->averageNodeColor(*it, 100, 169, 50);
 
     // Remove any occupied cells from free cells - assume there are far fewer
     // occupied cells than free cells, so this is much faster than checking on
@@ -264,7 +300,7 @@ OctomapWorld::CellStatus OctomapWorld::getCellStatusBoundingBox(
   octomap::point3d bbx_min = pointEigenToOctomap(bbx_min_eigen);
   octomap::point3d bbx_max = pointEigenToOctomap(bbx_max_eigen);
 
-  for (octomap::OcTree::leaf_bbx_iterator
+  for (octomap::ColorOcTree::leaf_bbx_iterator
            iter = octree_->begin_leafs_bbx(bbx_min, bbx_max),
            end = octree_->end_leafs_bbx();
        iter != end; ++iter) {
@@ -433,7 +469,7 @@ void OctomapWorld::getOccupiedPointCloud(
   CHECK_NOTNULL(output_cloud)->clear();
   unsigned int max_tree_depth = octree_->getTreeDepth();
   double resolution = octree_->getResolution();
-  for (octomap::OcTree::leaf_iterator it = octree_->begin_leafs();
+  for (octomap::ColorOcTree::leaf_iterator it = octree_->begin_leafs();
        it != octree_->end_leafs(); ++it) {
     if (octree_->isNodeOccupied(*it)) {
       // If leaf is max depth add coordinates.
@@ -530,7 +566,7 @@ void OctomapWorld::getAllBoxes(
     std::vector<std::pair<Eigen::Vector3d, double> >* box_vector) const {
   box_vector->clear();
   box_vector->reserve(octree_->size());
-  for (octomap::OcTree::leaf_iterator it = octree_->begin_leafs(),
+  for (octomap::ColorOcTree::leaf_iterator it = octree_->begin_leafs(),
                                       end = octree_->end_leafs();
        it != end; ++it) {
     Eigen::Vector3d cube_center(it.getX(), it.getY(), it.getZ());
@@ -591,18 +627,18 @@ void OctomapWorld::setOctomapFromMsg(const octomap_msgs::Octomap& msg) {
 
 void OctomapWorld::setOctomapFromBinaryMsg(const octomap_msgs::Octomap& msg) {
   octree_.reset(
-      dynamic_cast<octomap::OcTree*>(octomap_msgs::binaryMsgToMap(msg)));
+      dynamic_cast<octomap::ColorOcTree*>(octomap_msgs::binaryMsgToMap(msg)));
 }
 
 void OctomapWorld::setOctomapFromFullMsg(const octomap_msgs::Octomap& msg) {
   octree_.reset(
-      dynamic_cast<octomap::OcTree*>(octomap_msgs::fullMsgToMap(msg)));
+      dynamic_cast<octomap::ColorOcTree*>(octomap_msgs::fullMsgToMap(msg)));
 }
 
 bool OctomapWorld::loadOctomapFromFile(const std::string& filename) {
   if (!octree_) {
     // TODO(helenol): Resolution shouldn't matter... I think. I'm not sure.
-    octree_.reset(new octomap::OcTree(0.05));
+    octree_.reset(new octomap::ColorOcTree(0.05));
   }
   return octree_->readBinary(filename);
 }
@@ -678,7 +714,7 @@ void OctomapWorld::generateMarkerArray(
     free_nodes->markers[i] = occupied_nodes->markers[i];
   }
 
-  for (octomap::OcTree::leaf_iterator it = octree_->begin_leafs(),
+  for (octomap::ColorOcTree::leaf_iterator it = octree_->begin_leafs(),
                                       end = octree_->end_leafs();
        it != end; ++it) {
     geometry_msgs::Point cube_center;
@@ -692,10 +728,16 @@ void OctomapWorld::generateMarkerArray(
 
     int depth_level = it.getDepth();
 
+    // tung added
+    std_msgs::ColorRGBA marker_color;
+    octomap::ColorOcTreeNode::Color oc_color;
+
     if (octree_->isNodeOccupied(*it)) {
       occupied_nodes->markers[depth_level].points.push_back(cube_center);
+      // occupied_nodes->markers[depth_level].colors.push_back(
+      //     percentToColor(colorizeMapByHeight(it.getZ(), min_z, max_z)));
       occupied_nodes->markers[depth_level].colors.push_back(
-          percentToColor(colorizeMapByHeight(it.getZ(), min_z, max_z)));
+           getEncodedColor(it->getColor()));
     } else {
       free_nodes->markers[depth_level].points.push_back(cube_center);
       free_nodes->markers[depth_level].colors.push_back(
@@ -716,6 +758,16 @@ void OctomapWorld::generateMarkerArray(
       free_nodes->markers[i].action = visualization_msgs::Marker::DELETE;
     }
   }
+}
+
+std_msgs::ColorRGBA OctomapWorld::getEncodedColor(octomap::ColorOcTreeNode::Color & voxel_color)
+{
+  std_msgs::ColorRGBA color;
+  color.a = 1;
+  color.r = voxel_color.r;
+  color.g = voxel_color.g;
+  color.b = voxel_color.b;
+  return color;
 }
 
 double OctomapWorld::colorizeMapByHeight(double z, double min_z,

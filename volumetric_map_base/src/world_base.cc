@@ -212,6 +212,12 @@ void WorldBase::insertPointcloud(
   }
 }
 
+void WorldBase::insertPointcloud(
+    const Transformation& T_G_sensor,
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& pointcloud_sensor) {
+      insertPointcloudColorIntoMapImpl(T_G_sensor, pointcloud_sensor);
+}
+
 void WorldBase::computeWeights(const cv::Mat& disparity,
                                cv::Mat* weights) const {
   *weights = cv::Mat::ones(disparity.rows, disparity.cols, CV_32F);

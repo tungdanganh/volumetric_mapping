@@ -94,6 +94,10 @@ class WorldBase {
       const Transformation& T_G_sensor,
       const pcl::PointCloud<pcl::PointXYZ>::Ptr& pointcloud_sensor);
 
+  void insertPointcloud(
+      const Transformation& T_G_sensor,
+      const pcl::PointCloud<pcl::PointXYZI>::Ptr& pointcloud_sensor);
+
   // Manually affect the state of a bounding box. For the WorldBase class,
   // setting to occupied is a no-op.
   virtual void setFree(const Eigen::Vector3d& position,
@@ -209,6 +213,11 @@ class WorldBase {
   virtual void insertPointcloudIntoMapImpl(
       const Transformation& T_G_sensor,
       const pcl::PointCloud<pcl::PointXYZ>::Ptr& pointcloud_sensor) {
+    LOG(ERROR) << "Calling unimplemented pointcloud insertion!";
+  }
+  virtual void insertPointcloudColorIntoMapImpl(
+      const Transformation& T_G_sensor,
+      const pcl::PointCloud<pcl::PointXYZI>::Ptr& pointcloud_sensor) {
     LOG(ERROR) << "Calling unimplemented pointcloud insertion!";
   }
   virtual void insertPointcloudIntoMapWithWeightsImpl(

@@ -33,6 +33,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include <octomap/octomap.h>
+#include <octomap/ColorOcTree.h>
+
 #include <octomap_msgs/Octomap.h>
 #include <std_msgs/ColorRGBA.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -77,7 +79,7 @@ struct OctomapParameters {
 
   // Maximum range to allow a free space update.
   double max_free_space;
-  
+
   // Minimum height below sensor to allow a free space update.
   double min_height_free_space;
 
@@ -206,6 +208,10 @@ class OctomapWorld : public WorldBase {
       const Transformation& T_G_sensor,
       const pcl::PointCloud<pcl::PointXYZ>::Ptr& pointcloud);
 
+  virtual void insertPointcloudColorIntoMapImpl(
+      const Transformation& T_G_sensor,
+      const pcl::PointCloud<pcl::PointXYZI>::Ptr& pointcloud);
+
   // Check if the node at the specified key has neighbors or not.
   bool isSpeckleNode(const octomap::OcTreeKey& key) const;
 
@@ -235,8 +241,9 @@ class OctomapWorld : public WorldBase {
   bool checkSinglePoseCollision(const Eigen::Vector3d& robot_position) const;
 
   std_msgs::ColorRGBA percentToColor(double h) const;
+  std_msgs::ColorRGBA getEncodedColor(octomap::ColorOcTreeNode::Color & voxel_color);
 
-  std::shared_ptr<octomap::OcTree> octree_;
+  std::shared_ptr<octomap::ColorOcTree> octree_;
 
   OctomapParameters params_;
 
