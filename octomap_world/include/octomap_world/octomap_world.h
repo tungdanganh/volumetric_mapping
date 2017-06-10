@@ -225,7 +225,7 @@ class OctomapWorld : public WorldBase {
       std::vector<std::pair<Eigen::Vector3d, double> >* box_vector) const;
 
   // Helper functions for building up a map from sensor data.
-  void castRay(const octomap::point3d& sensor_origin,
+  int castRay(const octomap::point3d& sensor_origin,
                const octomap::point3d& point, octomap::KeySet* free_cells,
                octomap::KeySet* occupied_cells) const;
   void updateOccupancy(octomap::KeySet* free_cells,
