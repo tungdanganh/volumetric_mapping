@@ -112,25 +112,22 @@ void OctomapWorld::insertPointcloudColorIntoMapImpl(
 
     if (occupied_cells.find(key) == occupied_cells.end()) {
       // Check if this is within the allowed sensor range.
-      castRay(p_G_sensor, p_G_point, &free_cells, &occupied_cells);
+      int res = castRay(p_G_sensor, p_G_point, &free_cells, &occupied_cells);
+
+
+      if (res){
+        // oocupied
+        const int rgb = *reinterpret_cast<const int*>(&(it->rgb));
+        unsigned char r = (rgb >> 16) & 0x0000ff;
+        unsigned char g = (rgb >> 8)  & 0x0000ff;
+        unsigned char b = (rgb)       & 0x0000ff;
+        octree_->averageNodeColor (key, r, g, b); //setNodeColor
+      }
     }
   }
 
   // Apply the new free cells and occupied cells from
   updateOccupancy(&free_cells, &occupied_cells);
-
-  //tung test insert color
-  for (pcl::PointCloud<pcl::PointXYZRGB>::const_iterator it = cloud->begin();
-       it != cloud->end(); ++it) {
-    if (!std::isnan(it->x) && !std::isnan(it->y) && !std::isnan(it->z)) {
-      // unpack rgb into r/g/b
-      const int rgb = *reinterpret_cast<const int*>(&(it->rgb));
-      unsigned char r = (rgb >> 16) & 0x0000ff;
-      unsigned char g = (rgb >> 8)  & 0x0000ff;
-      unsigned char b = (rgb)       & 0x0000ff;
-      octree_->averageNodeColor(it->x, it->y, it->z, r, g, b);
-    }
-  }
 }
 
 void OctomapWorld::insertPointcloudIntoMapImpl(
@@ -165,14 +162,6 @@ void OctomapWorld::insertPointcloudIntoMapImpl(
   // Apply the new free cells and occupied cells from
   updateOccupancy(&free_cells, &occupied_cells);
 
-  // //tung test insert color
-  // for (pcl::PointCloud<pcl::PointXYZ>::const_iterator it = cloud->begin();
-  //      it != cloud->end(); ++it) {
-  //   if (!std::isnan(it->x) && !std::isnan(it->y) && !std::isnan(it->z)) {
-  //     //octree_->averageNodeColor(*it, 100, 169, 50);
-  //     octree_->averageNodeColor(it->x, it->y, it->z, 100, 169, 50);
-  //   }
-  // }
 }
 
 void OctomapWorld::insertProjectedDisparityIntoMapImpl(
@@ -212,12 +201,14 @@ void OctomapWorld::insertProjectedDisparityIntoMapImpl(
 
 }
 
-void OctomapWorld::castRay(const octomap::point3d& sensor_origin,
+int OctomapWorld::castRay(const octomap::point3d& sensor_origin,
                            const octomap::point3d& point,
                            octomap::KeySet* free_cells,
                            octomap::KeySet* occupied_cells) const {
   CHECK_NOTNULL(free_cells);
   CHECK_NOTNULL(occupied_cells);
+
+  int res = 0;
 
   if (params_.sensor_max_range < 0.0 ||
       (point - sensor_origin).norm() <= params_.sensor_max_range) {
@@ -240,6 +231,7 @@ void OctomapWorld::castRay(const octomap::point3d& sensor_origin,
     octomap::OcTreeKey key;
     if (octree_->coordToKeyChecked(point, key)) {
       occupied_cells->insert(key);
+      res = 1;
     }
   } else {
     // If the ray is longer than the max range, just update free space.
@@ -261,6 +253,8 @@ void OctomapWorld::castRay(const octomap::point3d& sensor_origin,
       }
     }
   }
+
+  return res;
 }
 
 bool OctomapWorld::isValidPoint(const cv::Vec3f& point) const {
@@ -751,7 +745,6 @@ void OctomapWorld::generateMarkerArray(
 
     int depth_level = it.getDepth();
 
-    // tung added
     std_msgs::ColorRGBA marker_color;
     octomap::ColorOcTreeNode::Color oc_color;
 
@@ -759,7 +752,7 @@ void OctomapWorld::generateMarkerArray(
       occupied_nodes->markers[depth_level].points.push_back(cube_center);
 
 #ifdef OCTOMAP_IS_COLORED
-        occupied_nodes->markers[depth_level].colors.push_back(
+      occupied_nodes->markers[depth_level].colors.push_back(
              getEncodedColor(it->getColor()));
 #else
       occupied_nodes->markers[depth_level].colors.push_back(
