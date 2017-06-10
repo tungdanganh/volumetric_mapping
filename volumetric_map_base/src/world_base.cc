@@ -183,16 +183,28 @@ void WorldBase::insertPointcloud(
     const Transformation& T_G_sensor,
     const sensor_msgs::PointCloud2::ConstPtr& pointcloud_sensor) {
 
-#ifdef OCTOMAP_IS_COLORED
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud_sensor_pcl(
-      new pcl::PointCloud<pcl::PointXYZRGB>);
-#else
-  pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_sensor_pcl(
-      new pcl::PointCloud<pcl::PointXYZ>);
-#endif
+  std::string fname;
+  for (size_t i = 0; i < pointcloud_sensor->fields.size (); ++i)
+    fname += pointcloud_sensor->fields[i].name;
+  //std::cout << fname << std::endl;
 
-  pcl::fromROSMsg(*pointcloud_sensor, *pointcloud_sensor_pcl);
-  insertPointcloud(T_G_sensor, pointcloud_sensor_pcl);
+  if (fname == "xyzrgb")
+  {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud_sensor_pcl(
+        new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::fromROSMsg(*pointcloud_sensor, *pointcloud_sensor_pcl);
+    insertPointcloud(T_G_sensor, pointcloud_sensor_pcl);
+  }
+  else //if (fname == "xyz")
+  {
+    if (fname != "xyz"){
+      std::cout << "Weird PCL format:" << fname << std::endl;
+    }
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_sensor_pcl(
+        new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::fromROSMsg(*pointcloud_sensor, *pointcloud_sensor_pcl);
+    insertPointcloud(T_G_sensor, pointcloud_sensor_pcl);
+  }
 }
 
 // TODO(tcies) Make the virtual function insertPointcloudIntoMapImpl take a
