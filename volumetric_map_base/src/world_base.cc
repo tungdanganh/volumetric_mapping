@@ -237,6 +237,27 @@ void WorldBase::insertPointcloud(
       insertPointcloudColorIntoMapImpl(T_G_sensor, pointcloud_sensor);
 }
 
+void WorldBase::setCameraModel(image_geometry::PinholeCameraModel& camInfo)
+{
+  setCameraModelImpl(camInfo);
+}
+
+void WorldBase::insertSaliencyImage(
+    const Transformation& T_G_sensor,
+    const sensor_msgs::ImageConstPtr& img) {
+
+  cv_bridge::CvImagePtr cvImage;
+  cvImage = cv_bridge::toCvCopy(img, sensor_msgs::image_encodings::MONO8);
+  insertSaliencyImage(T_G_sensor, cvImage);
+
+}
+
+void WorldBase::insertSaliencyImage(
+    const Transformation& T_G_sensor,
+    const cv_bridge::CvImagePtr& img) {
+      insertSaliencyImageIntoMapImpl(T_G_sensor, img);
+}
+
 void WorldBase::computeWeights(const cv::Mat& disparity,
                                cv::Mat* weights) const {
   *weights = cv::Mat::ones(disparity.rows, disparity.cols, CV_32F);

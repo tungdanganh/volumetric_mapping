@@ -221,6 +221,8 @@ void OctomapManager::advertisePublishers() {
       "octomap_occupied", 1, latch_topics_);
   free_nodes_pub_ = nh_private_.advertise<visualization_msgs::MarkerArray>(
       "octomap_free", 1, latch_topics_);
+  projection_line_pub_ = nh_private_.advertise<visualization_msgs::Marker>(
+      "projection_line", 1, latch_topics_);
 
   binary_map_pub_ = nh_private_.advertise<octomap_msgs::Octomap>(
       "octomap_binary", 1, latch_topics_);
@@ -246,6 +248,12 @@ void OctomapManager::publishAll() {
     generateMarkerArray(world_frame_, &occupied_nodes, &free_nodes);
     occupied_nodes_pub_.publish(occupied_nodes);
     free_nodes_pub_.publish(free_nodes);
+  }
+
+  if (latch_topics_ || projection_line_pub_.getNumSubscribers() > 0) {
+    visualization_msgs::Marker proj_lines;
+    generateProjectionMarker(world_frame_, &proj_lines);
+    projection_line_pub_.publish(proj_lines);
   }
 
   if (latch_topics_ || binary_map_pub_.getNumSubscribers() > 0) {
@@ -430,6 +438,21 @@ void OctomapManager::insertPointcloudWithTf(
     insertPointcloud(sensor_to_world, pointcloud);
   }
 }
+
+void OctomapManager::setCamInfo(image_geometry::PinholeCameraModel& camInfo)
+{
+  setCameraModel(camInfo);
+}
+
+void OctomapManager::insertSaliencyImgWithTf(const sensor_msgs::ImageConstPtr& img)
+{
+  Transformation sensor_to_world;
+  if (lookupTransform(img->header.frame_id, world_frame_,
+                      img->header.stamp, &sensor_to_world )) {
+    insertSaliencyImage(sensor_to_world, img);
+  }
+}
+
 
 bool OctomapManager::lookupTransform(const std::string& from_frame,
                                      const std::string& to_frame,

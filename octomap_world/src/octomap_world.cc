@@ -27,6 +27,8 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <ctime>
+
 #include "octomap_world/octomap_world.h"
 
 #include <glog/logging.h>
@@ -35,6 +37,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pcl/conversions.h>
 #include <pcl/filters/filter.h>
 #include <pcl_ros/transforms.h>
+
+
 
 namespace volumetric_mapping {
 
@@ -47,7 +51,8 @@ Eigen::Vector3d pointOctomapToEigen(const octomap::point3d& point) {
 }
 
 // Create a default parameters object and call the other constructor with it.
-OctomapWorld::OctomapWorld() : OctomapWorld(OctomapParameters()) {}
+OctomapWorld::OctomapWorld() : OctomapWorld(OctomapParameters()) {
+}
 
 // Creates an octomap with the correct parameters.
 OctomapWorld::OctomapWorld(const OctomapParameters& params)
@@ -87,6 +92,312 @@ void OctomapWorld::setOctomapParameters(const OctomapParameters& params) {
 }
 
 
+void OctomapWorld::setCameraModelImpl(image_geometry::PinholeCameraModel& camInfo)
+{
+  ROS_WARN("got camera model..");
+  CamModel = camInfo;
+  std::cout << CamModel.cameraInfo() << std::endl;
+}
+
+void OctomapWorld::getVoxelParams(octomap::ColorOcTreeNode* node,
+                                  VoxelParameters* param){
+   //(this computer is little-endian)
+  octomap::ColorOcTreeNode::Color color = node->getColor();
+  float data = node->getValue();
+  unsigned char* byte = (unsigned char*)(&data);
+  param->timestamp = (int)byte[0] << 8 | (int)byte[1];
+  param->counter = byte[2];
+  param->saliency_temp = byte[3];
+  param->saliency = color.r;
+
+  switch (color.g) {
+    case 0:
+      param->type = VOXEL_NORMAL;
+      break;
+    case 1:
+      param->type = VOXEL_SALIENCY;
+      break;
+    case 2:
+      param->type = VOXEL_RETIRED;
+      break;
+    default:
+      param->type = VOXEL_NORMAL;
+      param->timestamp = salconfig_.timestamp;
+      param->counter = 0;
+      param->saliency_temp = 0;
+      param->saliency = 0;
+      break;
+  }
+}
+
+void OctomapWorld::getVoxelParams(octomap::ColorOcTree::iterator node,
+                                  VoxelParameters* param){
+  octomap::ColorOcTreeNode::Color color = node->getColor();
+  float data = node->getValue();
+  unsigned char* byte = (unsigned char*)(&data);
+  param->timestamp = ((int)byte[0] << 8) | (int)byte[1];
+  param->counter = byte[2];
+  param->saliency_temp = byte[3];
+  param->saliency = color.r;
+
+  switch (color.g) {
+    case 0:
+      param->type = VOXEL_NORMAL;
+      break;
+    case 1:
+      param->type = VOXEL_SALIENCY;
+      break;
+    case 2:
+      param->type = VOXEL_RETIRED;
+      break;
+    default:
+      param->type = VOXEL_NORMAL;
+      param->timestamp = salconfig_.timestamp;
+      param->counter = 0;
+      param->saliency_temp = 0;
+      param->saliency = 0;
+      break;
+  }
+}
+
+
+void OctomapWorld::setVoxelParams(octomap::ColorOcTreeNode* node,
+                                  VoxelParameters* param){
+  float data;
+  unsigned char* byte = (unsigned char *) (&data);
+  *byte++ = (unsigned char)((param->timestamp >> 8) & 0x0000FF);
+  *byte++ = (unsigned char)(param->timestamp & 0x0000FF);
+  *byte++ = (unsigned char)(param->counter);
+  *byte = (unsigned char)(param->saliency_temp);
+
+  octomap::ColorOcTreeNode::Color color(param->saliency, (unsigned char)param->type, 0);
+  node->setColor(color);
+  node->setValue(data);
+}
+
+void OctomapWorld::setVoxelParams(octomap::ColorOcTree::iterator node,
+                                  VoxelParameters* param){
+  float data;
+  unsigned char* byte = (unsigned char *) (&data);
+  *byte++ = (unsigned char)((param->timestamp >> 8) & 0x0000FF);
+  *byte++ = (unsigned char)(param->timestamp & 0x0000FF);
+  *byte++ = (unsigned char)(param->counter);
+  *byte = (unsigned char)(param->saliency_temp);
+
+  octomap::ColorOcTreeNode::Color color(param->saliency, (unsigned char)param->type, 0);
+  node->setColor(color);
+  node->setValue(data);
+}
+
+
+void OctomapWorld::updateSaliency(octomap::ColorOcTreeNode * n, unsigned char sal_val)
+{
+  // TODO tung should change to params loading
+  VoxelParameters voxel;
+  getVoxelParams(n, &voxel);
+
+  if (voxel.type == VOXEL_NORMAL)
+  {
+    float I_bar, I_bar_1;
+    if(voxel.timestamp != salconfig_.timestamp) {
+      // first hit in this time step
+      voxel.counter = 0;
+      voxel.timestamp = salconfig_.timestamp;
+      voxel.saliency_temp = voxel.saliency;
+    }
+    I_bar_1 = voxel.saliency_temp;
+    if (voxel.counter == 255) voxel.counter = 254; // temporary solution
+    voxel.counter++;
+    I_bar = (I_bar_1 * (voxel.counter-1) + sal_val)/voxel.counter;
+    voxel.saliency += salconfig_.alpha * (I_bar - I_bar_1);
+    voxel.saliency_temp = I_bar;
+
+    voxel.type = (voxel.saliency > salconfig_.saliency_threshold)?VOXEL_SALIENCY:VOXEL_NORMAL;
+    setVoxelParams(n, &voxel);
+
+    //Check
+    VoxelParameters voxel_check;
+    getVoxelParams(n, &voxel_check);
+    if ((voxel_check.type != voxel.type) ||
+        (voxel_check.saliency != voxel.saliency) ||
+        (voxel_check.timestamp != voxel.timestamp) ||
+        (voxel_check.counter != voxel.counter) ||
+        (voxel_check.saliency_temp != voxel.saliency_temp))
+    {
+      ROS_WARN("OMG_node: voxel_get %f %f %f %f %f", voxel_check.type, voxel_check.saliency, voxel_check.timestamp, voxel_check.counter, voxel_check.saliency_temp);
+      ROS_WARN("OMG_node: voxel_set %f %f %f %f %f", voxel.type, voxel.saliency, voxel.timestamp, voxel.counter, voxel.saliency_temp);
+    }
+  }
+  //std::cout << "Check: " << voxel_timestamp << " " << (int)voxel_counter << " " << voxel_type << " " << (int)voxel_saliency << std::endl;
+}
+
+void OctomapWorld::updateIOR(void)
+{
+  double exp_beta = 1 + salconfig_.beta + salconfig_.beta * salconfig_.beta / 2.0; // approximate of exponential function
+  for (octomap::ColorOcTree::leaf_iterator it = octree_->begin_leafs(),
+                          end = octree_->end_leafs(); it != end; ++it) {
+    if (octree_->isNodeOccupied(*it)) {
+      VoxelParameters voxel;
+      getVoxelParams(it, &voxel);
+      if ((voxel.type == VOXEL_SALIENCY) && (voxel.timestamp != salconfig_.timestamp)){
+
+        double sal_tmp = (double)(voxel.saliency);
+        sal_tmp *= exp_beta;
+        voxel.saliency = (unsigned char)sal_tmp;
+        voxel.type = (voxel.saliency > salconfig_.saliency_threshold)?VOXEL_SALIENCY:VOXEL_RETIRED;
+        voxel.timestamp = salconfig_.timestamp;
+        setVoxelParams(it, &voxel);
+
+        // check
+        VoxelParameters voxel_check;
+        getVoxelParams(it, &voxel_check);
+        if ((voxel_check.type != voxel.type) ||
+            (voxel_check.saliency != voxel.saliency) ||
+            (voxel_check.timestamp != voxel.timestamp) ||
+            (voxel_check.counter != voxel.counter) ||
+            (voxel_check.saliency_temp != voxel.saliency_temp))
+        {
+          ROS_WARN("OMG_it: voxel_get %f %f %f %f %f",
+                    (float)voxel_check.type,
+                    (float)voxel_check.saliency,
+                    (float)voxel_check.timestamp,
+                    (float)voxel_check.counter,
+                    (float)voxel_check.saliency_temp);
+          ROS_WARN("OMG_it: voxel_set %f %f %f %f %f",
+                    (float)voxel.type,
+                    (float)voxel.saliency,
+                    (float)voxel.timestamp,
+                    (float)voxel.counter,
+                    (float)voxel.saliency_temp);
+        }
+      }
+    }
+  }
+}
+
+void OctomapWorld::insertSaliencyImageIntoMapImpl(
+    const Transformation& T_G_sensor,
+    const cv_bridge::CvImagePtr& img)
+{
+  salconfig_.timestamp++;
+  clock_t begin_time = clock();
+
+  const octomap::point3d origin = pointEigenToOctomap(T_G_sensor.getPosition());
+  ProjCloud.clear();
+  pcl::PointXYZ ptmp;
+  ptmp.x = origin.x();
+  ptmp.y = origin.y();
+  ptmp.z = origin.z();
+  ProjCloud.push_back(ptmp);
+
+  // TUNG PROJECTION
+  octomap::point3d direction = octomap::point3d (0,0.0,0.0);
+  octomap::point3d obstacle(0,0,0);
+
+  cv::Mat &mat = img->image;
+  int width = mat.cols;
+  int height = mat.rows;
+  int count_success=0;
+  int count_total=0;
+  for (int i=0; i < width; i+=10)
+  {
+    for (int j=0; j < height; j+=10)
+    {
+      count_total++;
+      cv::Point3d p;
+      cv::Point2d uv_rect;
+      uv_rect.x = i;
+      uv_rect.y = j;
+      p = CamModel.projectPixelTo3dRay(	uv_rect ) ;
+
+      // transform to world coordinate
+      // First, rotate the pointcloud into the world frame.
+      pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
+      pcl::PointXYZ pnt, pntTf;
+      pnt.x = p.x;
+      pnt.y = p.y;
+      pnt.z = p.z;
+      cloud->clear();
+      cloud->push_back(pnt);
+      pcl::transformPointCloud(*cloud, *cloud, T_G_sensor.getTransformationMatrix());
+      pntTf.x = cloud->points[0].x;
+      pntTf.y = cloud->points[0].y;
+      pntTf.z = cloud->points[0].z;
+      // ray cast
+      direction.x() = pntTf.x - origin.x();
+      direction.y() = pntTf.y - origin.y();
+      direction.z() = pntTf.z - origin.z();
+      if (octree_->castRay(origin, direction, obstacle, false, -1)) // unlimited range
+      {
+        octomap::ColorOcTreeNode* n = octree_->search(obstacle);
+        if (octree_->isNodeOccupied(n))
+        {
+          updateSaliency(n, 200); // mat.at<unsigned char>(j,i));
+          count_success++;
+
+          pcl::PointXYZ p_tmp;
+          p_tmp.x = obstacle.x();
+          p_tmp.y = obstacle.y();
+          p_tmp.z = obstacle.z();
+          ProjCloud.push_back(p_tmp);
+
+        }
+      }
+    }
+  }
+
+  clock_t end_time = clock();
+  double elapsed_secs = double(end_time - begin_time) / CLOCKS_PER_SEC;
+  std::cout << "[" << salconfig_.timestamp << "] Projected " << count_total << " points with " << count_success << " successful points in (s): " << elapsed_secs << std::endl;
+
+  begin_time = clock();
+  updateIOR();
+  end_time = clock();
+  elapsed_secs = double(end_time - begin_time) / CLOCKS_PER_SEC;
+  std::cout <<  "[" << salconfig_.timestamp << "] IOR (s) " << elapsed_secs << std::endl;
+}
+
+
+void OctomapWorld::generateProjectionMarker( const std::string& tf_frame,
+    visualization_msgs::Marker* line_list)
+{
+  static int id = 0;
+  if (ProjCloud.size() == 0) return;
+
+  line_list->header.frame_id = tf_frame;
+  line_list->header.stamp = ros::Time::now();
+  line_list->ns = "points_and_lines";
+  line_list->action = visualization_msgs::Marker::ADD;
+  line_list->pose.orientation.w = 1.0;
+  line_list->id = 0;
+  line_list->type = visualization_msgs::Marker::LINE_LIST;
+  line_list->scale.x = 0.1;
+  line_list->color.r = 0.0f;
+  line_list->color.g = 1.0f;
+  line_list->color.b = 0.0f;
+  line_list->color.a = 1.0;
+
+  geometry_msgs::Point p1, p2;
+  p1.x = ProjCloud.points[0].x;
+  p1.y = ProjCloud.points[0].y;
+  p1.z = ProjCloud.points[0].z;
+  line_list->points.push_back(p1);
+
+  int count = ProjCloud.size();
+
+  for (int i = 1; i < count; i++)
+  {
+    p2.x = ProjCloud.points[i].x;
+    p2.y = ProjCloud.points[i].y;
+    p2.z = ProjCloud.points[i].z;
+    // The line list needs two points for each line
+    line_list->points.push_back(p1);
+    line_list->points.push_back(p2);
+  }
+  line_list->points.push_back(p1);
+}
+
+
 void OctomapWorld::insertPointcloudColorIntoMapImpl(
     const Transformation& T_G_sensor,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud) {
@@ -114,14 +425,24 @@ void OctomapWorld::insertPointcloudColorIntoMapImpl(
       // Check if this is within the allowed sensor range.
       int res = castRay(p_G_sensor, p_G_point, &free_cells, &occupied_cells);
 
-
       if (res){
         // oocupied
         const int rgb = *reinterpret_cast<const int*>(&(it->rgb));
         unsigned char r = (rgb >> 16) & 0x0000ff;
         unsigned char g = (rgb >> 8)  & 0x0000ff;
         unsigned char b = (rgb)       & 0x0000ff;
-        octree_->averageNodeColor (key, r, g, b); //setNodeColor
+        // if it is not salient point before
+        octomap::ColorOcTreeNode* n = octree_->search(key);
+        if (n != 0) {
+          if (!(n->isColorSet())) {
+            n->setColor(r, g, b);
+          }
+        }
+        //
+        // octomap::ColorOcTreeNode* node = octree_->search(p_G_point);
+        // if (!(node->isColorSet()))
+        //   octree_->averageNodeColor (key, r, g, b); //setNodeColor
+        //
       }
     }
   }
@@ -196,9 +517,6 @@ void OctomapWorld::insertProjectedDisparityIntoMapImpl(
     }
   }
   updateOccupancy(&free_cells, &occupied_cells);
-
-
-
 }
 
 int OctomapWorld::castRay(const octomap::point3d& sensor_origin,
@@ -256,6 +574,7 @@ int OctomapWorld::castRay(const octomap::point3d& sensor_origin,
 
   return res;
 }
+
 
 bool OctomapWorld::isValidPoint(const cv::Vec3f& point) const {
   // Check both for disparities explicitly marked as invalid (where OpenCV maps
@@ -365,6 +684,23 @@ OctomapWorld::CellStatus OctomapWorld::getCellProbabilityPoint(
       *probability = node->getOccupancy();
     }
     if (octree_->isNodeOccupied(node)) {
+      return CellStatus::kOccupied;
+    } else {
+      return CellStatus::kFree;
+    }
+  }
+}
+
+OctomapWorld::CellStatus OctomapWorld::getCuriousGain(
+    const Eigen::Vector3d& point, double* gain) const {
+  octomap::ColorOcTreeNode* node = octree_->search(point.x(), point.y(), point.z());
+  *gain = 0;
+  if (node == NULL) {
+    return CellStatus::kUnknown;
+  } else {
+    if (octree_->isNodeOccupied(node)) {
+      octomap::ColorOcTreeNode::Color color = node->getColor();
+      *gain = color.b;
       return CellStatus::kOccupied;
     } else {
       return CellStatus::kFree;
@@ -696,6 +1032,7 @@ void OctomapWorld::generateMarkerArray(
   CHECK_NOTNULL(free_nodes);
 
   // Prune the octree first.
+  // TODO Tung: disable prune
   octree_->prune();
   int tree_depth = octree_->getTreeDepth() + 1;
 
@@ -753,7 +1090,7 @@ void OctomapWorld::generateMarkerArray(
 
 #ifdef OCTOMAP_IS_COLORED
       occupied_nodes->markers[depth_level].colors.push_back(
-             getEncodedColor(it->getColor()));
+             getEncodedColor(it));
 #else
       occupied_nodes->markers[depth_level].colors.push_back(
           percentToColor(colorizeMapByHeight(it.getZ(), min_z, max_z)));
@@ -780,14 +1117,33 @@ void OctomapWorld::generateMarkerArray(
     }
   }
 }
-
-std_msgs::ColorRGBA OctomapWorld::getEncodedColor(octomap::ColorOcTreeNode::Color & voxel_color)
+std_msgs::ColorRGBA OctomapWorld::getEncodedColor(octomap::ColorOcTree::iterator it)
 {
+
+  VoxelParameters voxel;
+  getVoxelParams(it, &voxel);
   std_msgs::ColorRGBA color;
   color.a = 1;
-  color.r = voxel_color.r;
-  color.g = voxel_color.g;
-  color.b = voxel_color.b;
+
+  if (voxel.type == VOXEL_SALIENCY)
+  {
+    color.r = voxel.saliency;
+    color.g = 0;
+    color.b = 0;
+  }
+  else if (voxel.type == VOXEL_RETIRED)
+  {
+    color.r = 0;
+    color.g = 100;
+    color.b = 0;
+  }
+  else
+  {
+    color.r = 0;
+    color.g = 0;
+    color.b = 100;
+  }
+
   return color;
 }
 

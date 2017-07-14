@@ -33,6 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <glog/logging.h>
 #include <gflags/gflags.h>
 
+#include <cv_bridge/cv_bridge.h>
 #include "octomap_world/octomap_world.h"
 
 #include <octomap_msgs/GetOctomap.h>
@@ -42,6 +43,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <volumetric_msgs/SaveMap.h>
 #include <volumetric_msgs/SetBoxOccupancy.h>
 #include <volumetric_msgs/SetDisplayBounds.h>
+
 
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -64,6 +66,9 @@ class OctomapManager : public OctomapWorld {
       const stereo_msgs::DisparityImageConstPtr& disparity);
   void insertPointcloudWithTf(
       const sensor_msgs::PointCloud2::ConstPtr& pointcloud);
+
+  void insertSaliencyImgWithTf(const sensor_msgs::ImageConstPtr& img);
+  void setCamInfo(image_geometry::PinholeCameraModel& camInfo);
 
   // Input Octomap callback.
   void octomapCallback(const octomap_msgs::Octomap& msg);
@@ -97,6 +102,7 @@ class OctomapManager : public OctomapWorld {
   void transformCallback(const geometry_msgs::TransformStamped& transform_msg);
 
  private:
+
   // Sets up subscriptions based on ROS node parameters.
   void setParametersFromROS();
   void subscribe();
@@ -157,6 +163,7 @@ class OctomapManager : public OctomapWorld {
   // Publish markers for visualization.
   ros::Publisher occupied_nodes_pub_;
   ros::Publisher free_nodes_pub_;
+  ros::Publisher projection_line_pub_;
 
   // Services!
   ros::ServiceServer reset_map_service_;

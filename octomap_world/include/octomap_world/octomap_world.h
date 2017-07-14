@@ -39,8 +39,46 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <std_msgs/ColorRGBA.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <volumetric_map_base/world_base.h>
+#include <cv_bridge/cv_bridge.h>
+#include <visualization_msgs/Marker.h>
 
 namespace volumetric_mapping {
+
+enum VoxelType {
+  VOXEL_NORMAL    = (unsigned char)0,
+  VOXEL_SALIENCY  = (unsigned char)1,
+  VOXEL_RETIRED   = (unsigned char)2
+};
+
+struct VoxelParameters{
+  VoxelParameters():
+    saliency(0),
+    type(VOXEL_NORMAL),
+    counter(0),
+    timestamp(0),
+    saliency_temp(0){
+      //...
+    }
+  unsigned char saliency;
+  VoxelType type;
+  unsigned char counter;
+  int timestamp;
+  unsigned char saliency_temp;
+};
+
+struct SaliencyParameters{
+  SaliencyParameters():
+    alpha(0.5),
+    beta(-0.001),
+    saliency_threshold(125),
+    timestamp(0){
+    // ... can initialize default numbers here
+  }
+  double alpha; // ratio to mix 2 saliency values
+  double beta; // decay coefficient for IOR
+  unsigned char saliency_threshold; // larger than this value will be consider as saliency voxel
+  int timestamp; // hold the timestep of the system, increase every new saliency image
+};
 
 struct OctomapParameters {
   OctomapParameters()
@@ -135,6 +173,8 @@ class OctomapWorld : public WorldBase {
   virtual CellStatus getCellStatusPoint(const Eigen::Vector3d& point) const;
   virtual CellStatus getCellProbabilityPoint(const Eigen::Vector3d& point,
                                              double* probability) const;
+  virtual CellStatus getCuriousGain( const Eigen::Vector3d& point,
+                                     double* gain) const;
   virtual CellStatus getLineStatus(const Eigen::Vector3d& start,
                                    const Eigen::Vector3d& end) const;
   virtual CellStatus getVisibility(const Eigen::Vector3d& view_point,
@@ -188,6 +228,17 @@ class OctomapWorld : public WorldBase {
                            visualization_msgs::MarkerArray* occupied_nodes,
                            visualization_msgs::MarkerArray* free_nodes);
 
+  // Add voxel information and some APIs
+  pcl::PointCloud<pcl::PointXYZ> ProjCloud;
+  void getVoxelParams(octomap::ColorOcTreeNode* node, VoxelParameters* param);
+  void getVoxelParams(octomap::ColorOcTree::iterator node, VoxelParameters* param);
+  void setVoxelParams(octomap::ColorOcTreeNode* node, VoxelParameters* param);
+  void setVoxelParams(octomap::ColorOcTree::iterator node, VoxelParameters* param);
+  void generateProjectionMarker( const std::string& tf_frame,
+     visualization_msgs::Marker* line_list);
+  void updateIOR(void);
+  void updateSaliency(octomap::ColorOcTreeNode * node, unsigned char sal_val);
+
   // Change detection -- when this is called, this resets the change detection
   // tracking within the map. So 2 consecutive calls will produce first the
   // change set, then nothing.
@@ -197,6 +248,7 @@ class OctomapWorld : public WorldBase {
   // order for this to work!
   void getChangedPoints(std::vector<Eigen::Vector3d>* changed_points,
                         std::vector<bool>* changed_states);
+
 
  protected:
   // Actual implementation for inserting disparity data.
@@ -211,6 +263,16 @@ class OctomapWorld : public WorldBase {
   virtual void insertPointcloudColorIntoMapImpl(
       const Transformation& T_G_sensor,
       const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pointcloud);
+
+  virtual void insertSaliencyImageIntoMapImpl(
+      const Transformation& T_G_sensor,
+      const cv_bridge::CvImagePtr& img);
+
+  image_geometry::PinholeCameraModel CamModel;
+  virtual void setCameraModelImpl(image_geometry::PinholeCameraModel& camInfo);
+
+
+
 
   // Check if the node at the specified key has neighbors or not.
   bool isSpeckleNode(const octomap::OcTreeKey& key) const;
@@ -241,12 +303,12 @@ class OctomapWorld : public WorldBase {
   bool checkSinglePoseCollision(const Eigen::Vector3d& robot_position) const;
 
   std_msgs::ColorRGBA percentToColor(double h) const;
-  std_msgs::ColorRGBA getEncodedColor(octomap::ColorOcTreeNode::Color & voxel_color);
+  std_msgs::ColorRGBA getEncodedColor(octomap::ColorOcTree::iterator it);
 
   std::shared_ptr<octomap::ColorOcTree> octree_;
 
   OctomapParameters params_;
-
+  SaliencyParameters salconfig_;
   // For collision checking.
   Eigen::Vector3d robot_size_;
 };
