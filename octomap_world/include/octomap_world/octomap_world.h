@@ -33,7 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include <octomap/octomap.h>
-#include <octomap/ColorOcTree.h>
+#include <octomap/SaliencyOcTree.h>
 
 #include <octomap_msgs/Octomap.h>
 #include <std_msgs/ColorRGBA.h>
@@ -44,32 +44,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace volumetric_mapping {
 
-enum VoxelType {
-  VOXEL_NORMAL    = (unsigned char)0,
-  VOXEL_SALIENCY  = (unsigned char)1,
-  VOXEL_RETIRED   = (unsigned char)2
-};
 
-struct VoxelParameters{
-  VoxelParameters():
-    saliency(0),
-    type(VOXEL_NORMAL),
-    counter(0),
-    timestamp(0),
-    saliency_temp(0){
-      //...
-    }
-  unsigned char saliency;
-  VoxelType type;
-  unsigned char counter;
-  int timestamp;
-  unsigned char saliency_temp;
-};
 
 struct SaliencyParameters{
   SaliencyParameters():
     alpha(0.5),
-    beta(-0.001),
+    beta(-0.01),
     saliency_threshold(125),
     timestamp(0){
     // ... can initialize default numbers here
@@ -230,14 +210,10 @@ class OctomapWorld : public WorldBase {
 
   // Add voxel information and some APIs
   pcl::PointCloud<pcl::PointXYZ> ProjCloud;
-  void getVoxelParams(octomap::ColorOcTreeNode* node, VoxelParameters* param);
-  void getVoxelParams(octomap::ColorOcTree::iterator node, VoxelParameters* param);
-  void setVoxelParams(octomap::ColorOcTreeNode* node, VoxelParameters* param);
-  void setVoxelParams(octomap::ColorOcTree::iterator node, VoxelParameters* param);
   void generateProjectionMarker( const std::string& tf_frame,
      visualization_msgs::Marker* line_list);
   void updateIOR(void);
-  void updateSaliency(octomap::ColorOcTreeNode * node, unsigned char sal_val);
+  void updateSaliency(octomap::SaliencyOcTreeNode * node, unsigned char sal_val);
 
   // Change detection -- when this is called, this resets the change detection
   // tracking within the map. So 2 consecutive calls will produce first the
@@ -303,9 +279,9 @@ class OctomapWorld : public WorldBase {
   bool checkSinglePoseCollision(const Eigen::Vector3d& robot_position) const;
 
   std_msgs::ColorRGBA percentToColor(double h) const;
-  std_msgs::ColorRGBA getEncodedColor(octomap::ColorOcTree::iterator it);
+  std_msgs::ColorRGBA getEncodedColor(octomap::SaliencyOcTree::iterator it);
 
-  std::shared_ptr<octomap::ColorOcTree> octree_;
+  std::shared_ptr<octomap::SaliencyOcTree> octree_;
 
   OctomapParameters params_;
   SaliencyParameters salconfig_;

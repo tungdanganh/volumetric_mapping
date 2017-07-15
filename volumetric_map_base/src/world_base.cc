@@ -198,7 +198,7 @@ void WorldBase::insertPointcloud(
   else //if (fname == "xyz")
   {
     if (fname != "xyz"){
-      std::cout << "Weird PCL format:" << fname << std::endl;
+      std::cout << "PCL format is not supported:" << fname << std::endl;
     }
     pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_sensor_pcl(
         new pcl::PointCloud<pcl::PointXYZ>);
