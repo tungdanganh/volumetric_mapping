@@ -102,18 +102,26 @@ void OctomapWorld::updateSaliency(octomap::SaliencyOcTreeNode * n, unsigned char
   octomap::SaliencyOcTreeNode::Saliency& saliency = n->getSaliency();
   if (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_NORMAL)
   {
-    float I_bar, I_bar_1;
+    float I_bar, I_bar_1, sal;
     if(saliency.timestamp != salconfig_.timestamp) {
       // first hit in this time step
       saliency.counter = 0;
       saliency.timestamp = salconfig_.timestamp;
       saliency.value_buff = saliency.value;
     }
+
+    // float tmp = sal_val;
+    // tmp += saliency.value;
+    // tmp /= 2;
+    // saliency.value = (unsigned char)tmp;
+
     I_bar_1 = saliency.value_buff;
     saliency.counter++;
     I_bar = (I_bar_1 * (saliency.counter-1) + sal_val)/saliency.counter;
-    saliency.value += salconfig_.alpha * (I_bar - I_bar_1);
+    sal = saliency.value + salconfig_.alpha * (I_bar - I_bar_1);
+    saliency.value = (unsigned char)sal;
     saliency.value_buff = I_bar;
+
     saliency.type = (saliency.value > salconfig_.saliency_threshold)?
                      octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY:
                      octomap::SaliencyOcTreeNode::Saliency::VOXEL_NORMAL;
@@ -193,10 +201,13 @@ void OctomapWorld::insertSaliencyImageIntoMapImpl(
   int height = mat.rows;
   int count_success=0;
   int count_total=0;
-  for (int i=0; i < width; i+=10)
+  for (int i=0; i < width; i+=5)
   {
-    for (int j=0; j < height; j+=10)
+    for (int j=0; j < height; j+=5)
     {
+
+      if (mat.at<unsigned char>(j, i) < salconfig_.saliency_threshold) continue;
+
       count_total++;
       cv::Point3d p;
       cv::Point2d uv_rect;
@@ -221,12 +232,12 @@ void OctomapWorld::insertSaliencyImageIntoMapImpl(
       direction.x() = pntTf.x - origin.x();
       direction.y() = pntTf.y - origin.y();
       direction.z() = pntTf.z - origin.z();
-      if (octree_->castRay(origin, direction, obstacle, false, -1)) // unlimited range
+      if (octree_->castRay(origin, direction, obstacle, false, salconfig_.projection_limit)) // unlimited range
       {
         octomap::SaliencyOcTreeNode* n = octree_->search(obstacle);
         if (octree_->isNodeOccupied(n))
         {
-          updateSaliency(n, mat.at<unsigned char>(j,i)); //
+          updateSaliency(n, mat.at<unsigned char>(j, i)); //
           count_success++;
 
           pcl::PointXYZ p_tmp;

@@ -49,15 +49,17 @@ namespace volumetric_mapping {
 struct SaliencyParameters{
   SaliencyParameters():
     alpha(0.5),
-    beta(-0.01),
+    beta(-0.000),
     saliency_threshold(125),
-    timestamp(0){
+    timestamp(0),
+    projection_limit(5){
     // ... can initialize default numbers here
   }
   double alpha; // ratio to mix 2 saliency values
   double beta; // decay coefficient for IOR
   unsigned char saliency_threshold; // larger than this value will be consider as saliency voxel
   int timestamp; // hold the timestep of the system, increase every new saliency image
+  int projection_limit; // limit the projection distance of ray casting (-1 for unlimited)
 };
 
 struct OctomapParameters {
