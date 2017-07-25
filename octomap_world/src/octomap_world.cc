@@ -125,12 +125,30 @@ void OctomapWorld::updateSaliency(octomap::SaliencyOcTreeNode * n, unsigned char
     saliency.type = (saliency.value > salconfig_.saliency_threshold)?
                      octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY:
                      octomap::SaliencyOcTreeNode::Saliency::VOXEL_NORMAL;
+    if (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY)
+    {
+      saliency.counter = 0; // use this for IOR
+    }
    }
 }
 
 void OctomapWorld::updateIOR(void)
 {
-  double exp_beta = 1 + salconfig_.beta + salconfig_.beta * salconfig_.beta / 2.0; // approximate of exponential function
+  double exp_beta = 1 + salconfig_.beta + salconfig_.beta * salconfig_.beta / 2.0; // approximation of exponential function
+
+  // for debugging
+  // static unsigned char tmp = 150;
+  // static int tmp1;
+  // std::cout << exp_beta << "....";
+  // for (int i=1; i < 20; i++){
+  //   tmp1 = (int)tmp;
+  //   std::cout << tmp1 <<",";
+  //   double tmpp = (double)tmp;
+  //   tmpp *= exp_beta;
+  //   tmp = (unsigned char)tmpp;
+  // }
+  // std::cout << std::endl;
+
   for (octomap::SaliencyOcTree::leaf_iterator it = octree_->begin_leafs(),
                           end = octree_->end_leafs(); it != end; ++it) {
     if (octree_->isNodeOccupied(*it)) {
@@ -139,39 +157,16 @@ void OctomapWorld::updateIOR(void)
 
       if ((saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY) &&
           (saliency.timestamp != salconfig_.timestamp)){
-
+        saliency.counter++;
         double sal_tmp = (double)(saliency.value);
+        double k = (double)saliency.counter;
+        exp_beta = 1 + k * salconfig_.beta + k * k * salconfig_.beta * salconfig_.beta / 2.0; // approximation of exponential function
         sal_tmp *= exp_beta;
-        saliency.value = (unsigned char)sal_tmp;
-        saliency.type = (saliency.value > salconfig_.saliency_threshold)?
+        //saliency.value = (unsigned char)sal_tmp;
+        saliency.type = (sal_tmp > salconfig_.saliency_threshold)?
                           octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY:
                           octomap::SaliencyOcTreeNode::Saliency::VOXEL_RETIRED;
         saliency.timestamp = salconfig_.timestamp;
-
-#ifdef CHECK_VOXEL_READ_WRITE
-        VoxelParameters voxel_check;
-        getVoxelParams(it, &voxel_check);
-        if ((voxel_check.type != voxel.type) ||
-            (voxel_check.saliency != voxel.saliency) ||
-            (voxel_check.timestamp != voxel.timestamp) ||
-            (voxel_check.counter != voxel.counter) ||
-            (voxel_check.saliency_temp != voxel.saliency_temp))
-        {
-          ROS_WARN("OMG_it: voxel_get %f %f %f %f %f",
-                    (float)voxel_check.type,
-                    (float)voxel_check.saliency,
-                    (float)voxel_check.timestamp,
-                    (float)voxel_check.counter,
-                    (float)voxel_check.saliency_temp);
-          ROS_WARN("OMG_it: voxel_set %f %f %f %f %f",
-                    (float)voxel.type,
-                    (float)voxel.saliency,
-                    (float)voxel.timestamp,
-                    (float)voxel.counter,
-                    (float)voxel.saliency_temp);
-        }
-#endif
-
       }
     }
   }
@@ -253,13 +248,13 @@ void OctomapWorld::insertSaliencyImageIntoMapImpl(
 
   clock_t end_time = clock();
   double elapsed_secs = double(end_time - begin_time) / CLOCKS_PER_SEC;
-  std::cout << "[" << salconfig_.timestamp << "] Projected " << count_total << " points with " << count_success << " successful points in (s): " << elapsed_secs << std::endl;
+  //std::cout << "[" << salconfig_.timestamp << "] Projected " << count_total << " points with " << count_success << " successful points in (s): " << elapsed_secs << std::endl;
 
   begin_time = clock();
   updateIOR();
   end_time = clock();
   elapsed_secs = double(end_time - begin_time) / CLOCKS_PER_SEC;
-  std::cout <<  "[" << salconfig_.timestamp << "] IOR (s) " << elapsed_secs << std::endl;
+  //std::cout <<  "[" << salconfig_.timestamp << "] IOR (s) " << elapsed_secs << std::endl;
 }
 
 
@@ -578,20 +573,21 @@ OctomapWorld::CellStatus OctomapWorld::getCellProbabilityPoint(
 
 OctomapWorld::CellStatus OctomapWorld::getCuriousGain(
     const Eigen::Vector3d& point, double* gain) const {
-      // TODO Tung update curiousity gain
-  // octomap::SaliencyOcTreeNode* node = octree_->search(point.x(), point.y(), point.z());
-  // *gain = 0;
-  // if (node == NULL) {
-  //   return CellStatus::kUnknown;
-  // } else {
-  //   if (octree_->isNodeOccupied(node)) {
-  //     octomap::SaliencyOcTreeNode::Saliency color = node->getColor();
-  //     *gain = color.b;
-  //     return CellStatus::kOccupied;
-  //   } else {
-  //     return CellStatus::kFree;
-  //   }
-  // }
+  // TODO Tung update curiousity gain
+  octomap::SaliencyOcTreeNode* node = octree_->search(point.x(), point.y(), point.z());
+  octomap::SaliencyOcTreeNode::Saliency& saliency = node->getSaliency();
+  *gain = 0;
+  if (node == NULL) {
+    return CellStatus::kUnknown;
+  } else {
+    if (octree_->isNodeOccupied(node)) {
+      if (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY)
+        *gain = saliency.value;
+      return CellStatus::kOccupied;
+    } else {
+      return CellStatus::kFree;
+    }
+  }
 }
 
 OctomapWorld::CellStatus OctomapWorld::getLineStatus(
@@ -1011,21 +1007,21 @@ std_msgs::ColorRGBA OctomapWorld::getEncodedColor(octomap::SaliencyOcTree::itera
   color.a = 1;
   if (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY)
   {
-    color.r = saliency.value;
+    color.r = saliency.value - saliency.value / 4;
     color.g = 0;
     color.b = 0;
   }
   else if (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_RETIRED)
   {
     color.r = 0;
-    color.g = 100;
+    color.g = 200;
     color.b = 0;
   }
   else
   {
     color.r = 0;
     color.g = 0;
-    color.b = 100;
+    color.b = 50;
   }
 
   return color;
