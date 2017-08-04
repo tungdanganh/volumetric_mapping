@@ -100,16 +100,17 @@ void OctomapWorld::setCameraModelImpl(image_geometry::PinholeCameraModel& camInf
 void OctomapWorld::updateSaliency(octomap::SaliencyOcTreeNode * n, unsigned char sal_val)
 {
   octomap::SaliencyOcTreeNode::Saliency& saliency = n->getSaliency();
+  //if (saliency.timestamp == 0) saliency.viewpoint = 0; //a hack to deal with initialization error in saliency variable
   if (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_NORMAL)
   {
     float I_bar, I_bar_1, sal;
+
     if(saliency.timestamp != salconfig_.timestamp) {
-      // first hit in this time step
+      // first hit in this time step: reset all value
       saliency.counter = 0;
       saliency.timestamp = salconfig_.timestamp;
       saliency.value_buff = saliency.value;
     }
-
     // float tmp = sal_val;
     // tmp += saliency.value;
     // tmp /= 2;
@@ -128,26 +129,18 @@ void OctomapWorld::updateSaliency(octomap::SaliencyOcTreeNode * n, unsigned char
     if (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY)
     {
       saliency.counter = 0; // use this for IOR
+      //saliency.viewpoint = 0; // this for counting number of viewpoint point towards this saliency voxel
     }
-   }
+  }
+  // else if ((saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY) ||
+  //            (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_RETIRED)){
+  //   saliency.viewpoint++;
+  // }
 }
 
 void OctomapWorld::updateIOR(void)
 {
   double exp_beta = 1 + salconfig_.beta + salconfig_.beta * salconfig_.beta / 2.0; // approximation of exponential function
-
-  // for debugging
-  // static unsigned char tmp = 150;
-  // static int tmp1;
-  // std::cout << exp_beta << "....";
-  // for (int i=1; i < 20; i++){
-  //   tmp1 = (int)tmp;
-  //   std::cout << tmp1 <<",";
-  //   double tmpp = (double)tmp;
-  //   tmpp *= exp_beta;
-  //   tmp = (unsigned char)tmpp;
-  // }
-  // std::cout << std::endl;
 
   for (octomap::SaliencyOcTree::leaf_iterator it = octree_->begin_leafs(),
                           end = octree_->end_leafs(); it != end; ++it) {
@@ -172,12 +165,21 @@ void OctomapWorld::updateIOR(void)
   }
 }
 
+Eigen::Matrix4d OctomapWorld::getCameraPose(void)
+{
+  Eigen::Matrix4d mat = camerapose_.getTransformationMatrix();
+  return mat;
+}
+
 void OctomapWorld::insertSaliencyImageIntoMapImpl(
     const Transformation& T_G_sensor,
     const cv_bridge::CvImagePtr& img)
 {
   salconfig_.timestamp++;
   clock_t begin_time = clock();
+
+  // copy the pose of the camera
+  camerapose_ = T_G_sensor;
 
   const octomap::point3d origin = pointEigenToOctomap(T_G_sensor.getPosition());
   ProjCloud.clear();
@@ -256,6 +258,7 @@ void OctomapWorld::insertSaliencyImageIntoMapImpl(
   elapsed_secs = double(end_time - begin_time) / CLOCKS_PER_SEC;
   //std::cout <<  "[" << salconfig_.timestamp << "] IOR (s) " << elapsed_secs << std::endl;
 }
+
 
 
 void OctomapWorld::generateProjectionMarker( const std::string& tf_frame,
@@ -575,12 +578,12 @@ OctomapWorld::CellStatus OctomapWorld::getCuriousGain(
     const Eigen::Vector3d& point, double* gain) const {
   // TODO Tung update curiousity gain
   octomap::SaliencyOcTreeNode* node = octree_->search(point.x(), point.y(), point.z());
-  octomap::SaliencyOcTreeNode::Saliency& saliency = node->getSaliency();
   *gain = 0;
   if (node == NULL) {
     return CellStatus::kUnknown;
   } else {
     if (octree_->isNodeOccupied(node)) {
+      octomap::SaliencyOcTreeNode::Saliency& saliency = node->getSaliency();
       if (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY)
         *gain = saliency.value;
       return CellStatus::kOccupied;
@@ -589,6 +592,45 @@ OctomapWorld::CellStatus OctomapWorld::getCuriousGain(
     }
   }
 }
+
+void OctomapWorld::setViewpoint(const Eigen::Vector3d& point) const {
+  // TODO Tung update number of viewpoint
+  octomap::SaliencyOcTreeNode* node = octree_->search(point.x(), point.y(), point.z());
+  if (node != NULL) {
+    if (octree_->isNodeOccupied(node)) {
+      octomap::SaliencyOcTreeNode::Saliency& saliency = node->getSaliency();
+      saliency.viewpoint++;
+      // if (this->manager_->getVisibility(origin, vec, false) ==
+      //     volumetric_mapping::OctomapManager::CellStatus::kOccupied) {
+      //       // TODO remove hardcoding camera parameters
+      //     saliency.viewpoint++;
+      // }
+    }
+  }
+}
+
+void OctomapWorld::setDensity(const Eigen::Vector3d& point, float z) const {
+  // TODO Tung update number of viewpoint
+  octomap::SaliencyOcTreeNode* node = octree_->search(point.x(), point.y(), point.z());
+  if (node != NULL) {
+    if (octree_->isNodeOccupied(node)) {
+      octomap::SaliencyOcTreeNode::Saliency& saliency = node->getSaliency();
+      float dens = getPclDensity(z*1000.0);
+      saliency.density += (uint32_t)dens;
+    }
+  }
+}
+
+float OctomapWorld::getPclDensity(float z) const{
+  // TODO: get from camera model here
+  float fx = 448, fy = 448, cx = 376, cy = 240;
+  float zmin = 376; //max(cx,cy)
+  if (z < zmin) return 0;
+
+  return (z - cx) * (z - cy) / (fx * fy);
+  //TODO: this is a temporary solution bacause z must be computed in camera coordinate
+}
+
 
 OctomapWorld::CellStatus OctomapWorld::getLineStatus(
     const Eigen::Vector3d& start, const Eigen::Vector3d& end) const {
@@ -879,7 +921,28 @@ bool OctomapWorld::loadOctomapFromFile(const std::string& filename) {
 }
 
 bool OctomapWorld::writeOctomapToFile(const std::string& filename) {
-  return octree_->writeBinary(filename);
+  // TODO: insert here to save a file with number of viewpoint
+  // open a file
+  // scan all voxel: save
+  std::string fn = filename + ".txt";
+  std::cout << "Save a log file in:" << fn << std::endl;
+  std::ofstream log_file( fn.c_str(), std::ofstream::out);
+  for (octomap::SaliencyOcTree::leaf_iterator it = octree_->begin_leafs(),
+                            end = octree_->end_leafs(); it != end; ++it) {
+    if (octree_->isNodeOccupied(*it)) {
+      octomap::SaliencyOcTreeNode& node = *it;
+      octomap::SaliencyOcTreeNode::Saliency& saliency = node.getSaliency();
+      log_file <<  it.getX() << "," << it.getY() << "," << it.getZ() << "," <<
+      (int)saliency.type  << "," <<
+      (int)saliency.value <<"," <<
+      saliency.viewpoint << "," <<
+      saliency.density << "\n";
+    }
+  }
+  log_file.close();
+  std::string fn1 = filename + ".ot";
+  std::cout << "Save an octomap file in:" << fn1 << std::endl;
+  return octree_->writeBinary(fn1);
 }
 
 bool OctomapWorld::isSpeckleNode(const octomap::OcTreeKey& key) const {

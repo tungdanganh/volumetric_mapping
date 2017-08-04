@@ -6,7 +6,6 @@ catkin_simple(ALL_DEPS_REQUIRED)
 
 add_definitions(-DOCTOMAP_IS_COLORED)
 
-
 add_definitions(-std=c++11)
 
 #############

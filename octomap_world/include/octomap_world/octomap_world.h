@@ -44,15 +44,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace volumetric_mapping {
 
-
-
 struct SaliencyParameters{
   SaliencyParameters():
     alpha(0.5),
     beta(-0.001),
     saliency_threshold(125),
     timestamp(0),
-    projection_limit(5){
+    projection_limit(3){
     // ... can initialize default numbers here
   }
   double alpha; // ratio to mix 2 saliency values
@@ -141,6 +139,7 @@ class OctomapWorld : public WorldBase {
   // Creates an octomap if one is not yet created or if the resolution of the
   // current varies from the parameters requested.
   void setOctomapParameters(const OctomapParameters& params);
+  float getPclDensity(float z) const;
 
   // Virtual functions for manually manipulating map probabilities.
   virtual void setFree(const Eigen::Vector3d& position,
@@ -157,6 +156,9 @@ class OctomapWorld : public WorldBase {
                                              double* probability) const;
   virtual CellStatus getCuriousGain( const Eigen::Vector3d& point,
                                      double* gain) const;
+  virtual void setViewpoint(const Eigen::Vector3d& point) const;
+  virtual void setDensity(const Eigen::Vector3d& point, float z) const;
+
   virtual CellStatus getLineStatus(const Eigen::Vector3d& start,
                                    const Eigen::Vector3d& end) const;
   virtual CellStatus getVisibility(const Eigen::Vector3d& view_point,
@@ -227,6 +229,8 @@ class OctomapWorld : public WorldBase {
   void getChangedPoints(std::vector<Eigen::Vector3d>* changed_points,
                         std::vector<bool>* changed_states);
 
+  // tung
+  Eigen::Matrix4d getCameraPose(void);
 
  protected:
   // Actual implementation for inserting disparity data.
@@ -283,10 +287,12 @@ class OctomapWorld : public WorldBase {
   std_msgs::ColorRGBA percentToColor(double h) const;
   std_msgs::ColorRGBA getEncodedColor(octomap::SaliencyOcTree::iterator it);
 
+
   std::shared_ptr<octomap::SaliencyOcTree> octree_;
 
   OctomapParameters params_;
   SaliencyParameters salconfig_;
+  Transformation camerapose_;
   // For collision checking.
   Eigen::Vector3d robot_size_;
 };
