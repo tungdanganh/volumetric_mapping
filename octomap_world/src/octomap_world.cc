@@ -100,7 +100,6 @@ void OctomapWorld::setCameraModelImpl(image_geometry::PinholeCameraModel& camInf
 void OctomapWorld::updateSaliency(octomap::SaliencyOcTreeNode * n, unsigned char sal_val)
 {
   octomap::SaliencyOcTreeNode::Saliency& saliency = n->getSaliency();
-  //if (saliency.timestamp == 0) saliency.viewpoint = 0; //a hack to deal with initialization error in saliency variable
   if (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_NORMAL)
   {
     float I_bar, I_bar_1, sal;
@@ -129,13 +128,8 @@ void OctomapWorld::updateSaliency(octomap::SaliencyOcTreeNode * n, unsigned char
     if (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY)
     {
       saliency.counter = 0; // use this for IOR
-      //saliency.viewpoint = 0; // this for counting number of viewpoint point towards this saliency voxel
     }
   }
-  // else if ((saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_SALIENCY) ||
-  //            (saliency.type == octomap::SaliencyOcTreeNode::Saliency::VOXEL_RETIRED)){
-  //   saliency.viewpoint++;
-  // }
 }
 
 void OctomapWorld::updateIOR(void)
@@ -258,8 +252,6 @@ void OctomapWorld::insertSaliencyImageIntoMapImpl(
   elapsed_secs = double(end_time - begin_time) / CLOCKS_PER_SEC;
   //std::cout <<  "[" << salconfig_.timestamp << "] IOR (s) " << elapsed_secs << std::endl;
 }
-
-
 
 void OctomapWorld::generateProjectionMarker( const std::string& tf_frame,
     visualization_msgs::Marker* line_list)
@@ -593,44 +585,45 @@ OctomapWorld::CellStatus OctomapWorld::getCuriousGain(
   }
 }
 
-void OctomapWorld::setViewpoint(const Eigen::Vector3d& point) const {
+void OctomapWorld::setViewpoint(const Eigen::Vector3d& origin, const Eigen::Vector3d& point) const {
   // TODO Tung update number of viewpoint
   octomap::SaliencyOcTreeNode* node = octree_->search(point.x(), point.y(), point.z());
   if (node != NULL) {
     if (octree_->isNodeOccupied(node)) {
-      octomap::SaliencyOcTreeNode::Saliency& saliency = node->getSaliency();
-      saliency.viewpoint++;
-      // if (this->manager_->getVisibility(origin, vec, false) ==
-      //     volumetric_mapping::OctomapManager::CellStatus::kOccupied) {
-      //       // TODO remove hardcoding camera parameters
-      //     saliency.viewpoint++;
-      // }
+      if (getVisibility(origin, point, false) == CellStatus::kOccupied) {
+          octomap::SaliencyOcTreeNode::Saliency& saliency = node->getSaliency();
+          saliency.viewpoint++;
+      }
     }
   }
 }
 
-void OctomapWorld::setDensity(const Eigen::Vector3d& point, float z) const {
+void OctomapWorld::setDensity(const Eigen::Vector3d& origin, const Eigen::Vector3d& point, float z) const {
   // TODO Tung update number of viewpoint
   octomap::SaliencyOcTreeNode* node = octree_->search(point.x(), point.y(), point.z());
   if (node != NULL) {
     if (octree_->isNodeOccupied(node)) {
-      octomap::SaliencyOcTreeNode::Saliency& saliency = node->getSaliency();
-      float dens = getPclDensity(z*1000.0);
-      saliency.density += (uint32_t)dens;
+      if (getVisibility(origin, point, false) == CellStatus::kOccupied) {
+          octomap::SaliencyOcTreeNode::Saliency& saliency = node->getSaliency();
+          float dens = getPixelOverArea(z);
+          saliency.density += (uint32_t)(dens);
+      }
     }
   }
 }
 
-float OctomapWorld::getPclDensity(float z) const{
+float OctomapWorld::getPixelOverArea(float z) const{
   // TODO: get from camera model here
   float fx = 448, fy = 448, cx = 376, cy = 240;
-  float zmin = 376; //max(cx,cy)
-  if (z < zmin) return 0;
-
-  return (z - cx) * (z - cy) / (fx * fy);
-  //TODO: this is a temporary solution bacause z must be computed in camera coordinate
+  return (fx*fy)/(z * z); // number of pixels in a voxel
 }
 
+float OctomapWorld::getAreaOverPixel(float z) const{
+  // TODO: get from camera model here
+  float fx = 448, fy = 448, cx = 376, cy = 240;
+  // correct formula is (z* z)/
+  return (z*z)/(fx * fy); // area over 1 pixel
+}
 
 OctomapWorld::CellStatus OctomapWorld::getLineStatus(
     const Eigen::Vector3d& start, const Eigen::Vector3d& end) const {

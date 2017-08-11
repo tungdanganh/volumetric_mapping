@@ -47,10 +47,10 @@ namespace volumetric_mapping {
 struct SaliencyParameters{
   SaliencyParameters():
     alpha(0.5),
-    beta(-0.001),
+    beta(-0.0005),
     saliency_threshold(125),
     timestamp(0),
-    projection_limit(3){
+    projection_limit(5){
     // ... can initialize default numbers here
   }
   double alpha; // ratio to mix 2 saliency values
@@ -139,7 +139,9 @@ class OctomapWorld : public WorldBase {
   // Creates an octomap if one is not yet created or if the resolution of the
   // current varies from the parameters requested.
   void setOctomapParameters(const OctomapParameters& params);
-  float getPclDensity(float z) const;
+
+  float getAreaOverPixel(float z) const;
+  float getPixelOverArea(float z) const;
 
   // Virtual functions for manually manipulating map probabilities.
   virtual void setFree(const Eigen::Vector3d& position,
@@ -156,8 +158,8 @@ class OctomapWorld : public WorldBase {
                                              double* probability) const;
   virtual CellStatus getCuriousGain( const Eigen::Vector3d& point,
                                      double* gain) const;
-  virtual void setViewpoint(const Eigen::Vector3d& point) const;
-  virtual void setDensity(const Eigen::Vector3d& point, float z) const;
+  virtual void setViewpoint(const Eigen::Vector3d& origin, const Eigen::Vector3d& point) const;
+  virtual void setDensity(const Eigen::Vector3d& origin, const Eigen::Vector3d& point, float z) const;
 
   virtual CellStatus getLineStatus(const Eigen::Vector3d& start,
                                    const Eigen::Vector3d& end) const;
